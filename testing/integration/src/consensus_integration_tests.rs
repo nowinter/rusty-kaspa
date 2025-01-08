@@ -1672,6 +1672,7 @@ async fn selected_chain_test() {
     consensus.add_utxo_valid_block_with_parents(1.into(), vec![config.genesis.hash], vec![]).await.unwrap();
     for i in 2..7 {
         let hash = i.into();
+        println!("i: {}, hash: {}", i, hash); // Debug output
         consensus.add_utxo_valid_block_with_parents(hash, vec![(i - 1).into()], vec![]).await.unwrap();
     }
     consensus.add_utxo_valid_block_with_parents(7.into(), vec![1.into()], vec![]).await.unwrap(); // Adding a non chain block shouldn't affect the selected chain store.
@@ -1706,6 +1707,149 @@ async fn selected_chain_test() {
     assert!(consensus.selected_chain_store.read().get_by_index(3).is_err());
     assert_selected_chain_store_matches_virtual_chain(&consensus);
 
+    consensus.shutdown(wait_handles);
+}
+
+
+#[tokio::test]
+async fn ilya_selected_chain_test_with_fork_above_block_1() {
+    init_allocator_with_default_settings();
+    kaspa_core::log::try_init_logger("info");
+
+    let config = ConfigBuilder::new(MAINNET_PARAMS)
+        .skip_proof_of_work()
+        .edit_consensus_params(|p| {
+            p.min_difficulty_window_len = p.legacy_difficulty_window_size;
+        })
+        .build();
+    let consensus = TestConsensus::new(&config);
+    let wait_handles = consensus.init();
+
+    // Step 1: Build a chain starting from Genesis
+    consensus.add_utxo_valid_block_with_parents(1.into(), vec![config.genesis.hash], vec![]).await.unwrap();
+    for i in 2..7 {
+        let hash = i.into();
+        consensus.add_utxo_valid_block_with_parents(hash, vec![(i - 1).into()], vec![]).await.unwrap();
+    }
+    // Assert: The selected chain includes Genesis -> 1 -> 2 -> 3 -> 4 -> 5 -> 6
+    assert_eq!(consensus.selected_chain_store.read().get_by_index(0).unwrap(), config.genesis.hash);
+    for i in 1..7 {
+        assert_eq!(consensus.selected_chain_store.read().get_by_index(i).unwrap(), i.into());
+    }
+
+    // Step 2: Create a fork above block 1
+    // New chain starting from block 1
+    consensus.add_utxo_valid_block_with_parents(7.into(), vec![1.into()], vec![]).await.unwrap();
+    for i in 8..12 {
+        let hash = i.into();
+        consensus.add_utxo_valid_block_with_parents(hash, vec![(i - 1).into()], vec![]).await.unwrap();
+    }
+
+    assert!(consensus.selected_chain_store.read().get_by_index(7).is_err());
+
+    // Assert: After the fork, the selected chain shifts to the new chain with higher cumulative work
+    assert_eq!(consensus.selected_chain_store.read().get_by_index(0).unwrap(), config.genesis.hash);
+    assert_eq!(consensus.selected_chain_store.read().get_by_index(1).unwrap(), 1.into());
+    for i in 2..6 {
+        assert_eq!(consensus.selected_chain_store.read().get_by_index(i).unwrap(), (i + 5).into());
+    }
+    assert!(consensus.selected_chain_store.read().get_by_index(7).is_err());
+
+    // Step 3: Test GHOSTDAG tie-breaking rules
+    for i in 12..18 {
+        consensus.add_utxo_valid_block_with_parents(i.into(), vec![1.into()], vec![]).await.unwrap();
+    }
+    consensus.add_utxo_valid_block_with_parents(18.into(), (12..18).map(|i| i.into()).collect_vec(), vec![]).await.unwrap();
+
+    // Assert: The shorter chain with more blue work becomes the selected chain
+    assert_eq!(consensus.selected_chain_store.read().get_by_index(0).unwrap(), config.genesis.hash);
+    assert_eq!(consensus.selected_chain_store.read().get_by_index(1).unwrap(), 1.into());
+    assert_eq!(consensus.selected_chain_store.read().get_by_index(2).unwrap(), 17.into()); // GHOSTDAG tie-breaking rules
+    assert_eq!(consensus.selected_chain_store.read().get_by_index(3).unwrap(), 18.into());
+    assert!(consensus.selected_chain_store.read().get_by_index(4).is_err());
+    assert_selected_chain_store_matches_virtual_chain(&consensus);
+
+    consensus.shutdown(wait_handles);
+}
+
+fn print_selected_chain(consensus: &TestConsensus) {
+    let chain_store = consensus.selected_chain_store.read();
+    let mut chain = Vec::new();
+    let mut index = 1;
+
+    // Traverse the chain from the beginning (index 0)
+    while let Ok(block_hash) = chain_store.get_by_index(index) {
+        // Convert the block hash to a decimal number
+        chain.push(block_hash);
+        index += 1;
+    }
+
+    // Format and print the chain
+    let chain_str = chain
+        .iter()
+        .map(|hash| format!("{} ({:?})", hash, consensus.ghostdag_store.get_blue_score(*hash))) // Convert each block hash to a string
+        .collect::<Vec<_>>()
+        .join(" -> ");
+    println!("SCh: -> {}", chain_str);
+}
+
+#[tokio::test]
+async fn ilya_fork_with_shared_blocks_test() {
+    init_allocator_with_default_settings();
+    kaspa_core::log::try_init_logger("info");
+
+    let config = ConfigBuilder::new(MAINNET_PARAMS)
+        .skip_proof_of_work()
+        .edit_consensus_params(|p| {
+            p.min_difficulty_window_len = p.legacy_difficulty_window_size;
+        })
+        .build();
+    let consensus = TestConsensus::new(&config);
+    let wait_handles = consensus.init();
+
+    // Step 1: Add blocks sequentially to create an initial chain
+    consensus.add_utxo_valid_block_with_parents(1.into(), vec![config.genesis.hash], vec![]).await.unwrap();
+    // Step 2: Extend block 1 with multiple branches
+    consensus.add_utxo_valid_block_with_parents(4.into(), vec![1.into()], vec![]).await.unwrap();
+    consensus.add_utxo_valid_block_with_parents(2.into(), vec![1.into()], vec![]).await.unwrap();
+    print_selected_chain(&consensus);
+    consensus.add_utxo_valid_block_with_parents(7.into(), vec![4.into()], vec![]).await.unwrap();
+    print_selected_chain(&consensus);
+// Assert the selected chain is Genesis -> 1 -> 4 -> 7
+    assert_eq!(consensus.selected_chain_store.read().get_by_index(0).unwrap(), config.genesis.hash);
+    assert_eq!(consensus.selected_chain_store.read().get_by_index(1).unwrap(), 1.into());
+    assert_eq!(consensus.selected_chain_store.read().get_by_index(2).unwrap(), 4.into());
+    assert_eq!(consensus.selected_chain_store.read().get_by_index(3).unwrap(), 7.into());
+    assert!(consensus.selected_chain_store.read().get_by_index(4).is_err());
+    consensus.add_utxo_valid_block_with_parents(3.into(), vec![2.into()], vec![]).await.unwrap();
+    print_selected_chain(&consensus);
+    // Assert the selected chain is Genesis -> 1 -> 4 -> 7
+    assert_eq!(consensus.selected_chain_store.read().get_by_index(0).unwrap(), config.genesis.hash);
+    assert_eq!(consensus.selected_chain_store.read().get_by_index(1).unwrap(), 1.into());
+    assert_eq!(consensus.selected_chain_store.read().get_by_index(2).unwrap(), 4.into());
+    assert_eq!(consensus.selected_chain_store.read().get_by_index(3).unwrap(), 7.into());
+    assert!(consensus.selected_chain_store.read().get_by_index(4).is_err());
+
+ // Ensure no double inclusion
+
+    // Step 3: Fork above block 1 and reuse block 3
+    consensus.add_utxo_valid_block_with_parents(5.into(), vec![3.into()], vec![]).await.unwrap();
+    print_selected_chain(&consensus);
+
+    // Assert the selected chain switches to Genesis -> 1 -> 2 -> 3 -> 5
+    assert_eq!(consensus.selected_chain_store.read().get_by_index(0).unwrap(), config.genesis.hash);
+    assert_eq!(consensus.selected_chain_store.read().get_by_index(1).unwrap(), 1.into());
+    assert_eq!(consensus.selected_chain_store.read().get_by_index(2).unwrap(), 2.into());
+    assert_eq!(consensus.selected_chain_store.read().get_by_index(3).unwrap(), 3.into());
+    assert_eq!(consensus.selected_chain_store.read().get_by_index(4).unwrap(), 5.into());
+    //assert_eq!(consensus.selected_chain_store.read().get_by_index(4).unwrap(), 9.into());
+    assert!(consensus.selected_chain_store.read().get_by_index(5).is_err()); // Ensure no double inclusion
+
+
+    consensus.add_utxo_valid_block_with_parents(6.into(), vec![4.into()], vec![]).await.unwrap();
+    consensus.add_utxo_valid_block_with_parents(8.into(), vec![7.into()], vec![]).await.unwrap();
+    consensus.add_utxo_valid_block_with_parents(15.into(), vec![8.into()], vec![]).await.unwrap();
+    print_selected_chain(&consensus);
     consensus.shutdown(wait_handles);
 }
 

@@ -346,17 +346,35 @@ impl VirtualStateProcessor {
         self.notification_root
             .notify(Notification::VirtualDaaScoreChanged(VirtualDaaScoreChangedNotification::new(new_virtual_state.daa_score)))
             .expect("expecting an open unbounded channel");
-        if self.notification_root.has_subscription(EventType::VirtualChainChanged) {
-            // check for subscriptions before the heavy lifting
+        info!(
+            "resolve_virtual chain changed : +[{:?}] -[{:?}] :[?]",
+            chain_path.added.len(),
+            chain_path.removed.len(),
+           );
+        
+        if chain_path.added.len() > 0 || chain_path.removed.len() > 0 { // todo assert no removal?
             let added_chain_blocks_acceptance_data =
                 chain_path.added.iter().copied().map(|added| self.acceptance_data_store.get(added).unwrap()).collect_vec();
-            self.notification_root
-                .notify(Notification::VirtualChainChanged(VirtualChainChangedNotification::new(
-                    chain_path.added.into(),
-                    chain_path.removed.into(),
-                    Arc::new(added_chain_blocks_acceptance_data),
-                )))
-                .expect("expecting an open unbounded channel");
+            if chain_path.added.len() < 10 {
+                info!(
+                    "VIRTUAL PROCESSOR, notifying virtual chain changed : \n+({:?})\n-({:?})\n:({:?})",
+                    chain_path.added,
+                    chain_path.removed,
+                    added_chain_blocks_acceptance_data
+                );
+            }
+                
+        
+            if self.notification_root.has_subscription(EventType::VirtualChainChanged) {
+                // check for subscriptions before the heavy lifting - ilya
+                self.notification_root
+                    .notify(Notification::VirtualChainChanged(VirtualChainChangedNotification::new(
+                        chain_path.added.into(),
+                        chain_path.removed.into(),
+                        Arc::new(added_chain_blocks_acceptance_data),
+                    )))
+                    .expect("expecting an open unbounded channel");
+            }
         }
     }
 

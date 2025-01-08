@@ -40,6 +40,13 @@ impl ArgsBuilder {
         Self { args }
     }
 
+    pub fn default() -> Self {
+        let args = Args {
+            ..Default::default()
+        };
+
+        Self { args }
+    }
     #[cfg(feature = "devnet-prealloc")]
     pub fn prealloc_address(mut self, prealloc_address: Address) -> Self {
         self.args.prealloc_address = Some(prealloc_address.to_string());

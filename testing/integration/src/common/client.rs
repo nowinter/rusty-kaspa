@@ -49,6 +49,10 @@ impl ListeningClient {
         self.listener(EventType::BlockAdded)
     }
 
+    pub fn vc_changed_listener(&self) -> Option<Listener> {
+        self.listener(EventType::VirtualChainChanged)
+    }
+
     pub fn utxos_changed_listener(&self) -> Option<Listener> {
         self.listener(EventType::UtxosChanged)
     }

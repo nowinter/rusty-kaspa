@@ -97,6 +97,53 @@ use std::{
     ops::Deref,
     sync::{atomic::Ordering, Arc},
 };
+use std::sync::atomic::AtomicU64;
+use kaspa_consensus_core::subnets::SubnetworkId;
+
+struct BlockStorage {
+    blocks: VecDeque<Hash>,
+    block_transactions_store: Arc<DbBlockTransactionsStore>, // Assuming you have access to this store
+}
+
+impl BlockStorage {
+    fn new(block_transactions_store: Arc<DbBlockTransactionsStore>) -> Self {
+        BlockStorage {
+            blocks: VecDeque::new(),
+            block_transactions_store,
+        }
+    }
+
+    fn add_block(&mut self, block: Hash) {
+        self.blocks.push_back(block);
+    }
+
+    fn remove_block(&mut self, block: Hash) {
+        if let Some(pos) = self.blocks.iter().position(|&b| b == block) {
+            self.blocks.remove(pos);
+        }
+    }
+
+    fn get_blocks(&self) -> &VecDeque<Hash> {
+        &self.blocks
+    }
+
+    fn get_transactions_by_subnetwork_id(&self, subnetwork_id: SubnetworkId) -> Vec<Transaction> {
+        let mut transactions = Vec::new();
+        let block_transactions_store = &self.block_transactions_store;
+
+        // Use parallel processing to retrieve transactions from multiple blocks
+        let block_transactions: Vec<_> = self.blocks.par_iter().filter_map(|&block_hash| {
+            block_transactions_store.get(block_hash).unwrap_option()
+        }).collect();
+
+        // Filter transactions by subnetwork ID and collect them into a vector
+        for block_tx in block_transactions {
+            transactions.extend(block_tx.iter().filter(|tx| tx.subnetwork_id == subnetwork_id).cloned());
+        }
+
+        transactions
+    }
+}
 
 pub struct VirtualStateProcessor {
     // Channels
@@ -127,6 +174,8 @@ pub struct VirtualStateProcessor {
     pub(super) body_tips_store: Arc<RwLock<DbTipsStore>>,
     pub(super) depth_store: Arc<DbDepthStore>,
     pub(super) selected_chain_store: Arc<RwLock<DbSelectedChainStore>>,
+
+    block_storage: RwLock<BlockStorage>, // Block storage ilya
 
     // Utxo-related stores
     pub(super) utxo_diffs_store: Arc<DbUtxoDiffsStore>,
@@ -163,7 +212,7 @@ pub struct VirtualStateProcessor {
 
     // Counters
     counters: Arc<ProcessingCounters>,
-
+    pub(super) line_425_counter: AtomicU64,
     // Storage mass hardfork DAA score
     pub(crate) storage_mass_activation: ForkActivation,
     pub(crate) kip10_activation: ForkActivation,
@@ -232,6 +281,9 @@ impl VirtualStateProcessor {
             counters,
             storage_mass_activation: params.storage_mass_activation,
             kip10_activation: params.kip10_activation,
+            //block_storage: BlockStorage::new(storage.block_transactions_store.clone()),
+            block_storage: RwLock::new(BlockStorage::new(storage.block_transactions_store.clone())),
+            line_425_counter: AtomicU64::new(0), // Initialize the counter
         }
     }
 
@@ -267,6 +319,7 @@ impl VirtualStateProcessor {
     }
 
     fn resolve_virtual(self: &Arc<Self>) {
+
         let pruning_point = self.pruning_point_store.read().pruning_point().unwrap();
         let virtual_read = self.virtual_stores.upgradable_read();
         let prev_state = virtual_read.state.get().unwrap();
@@ -347,7 +400,7 @@ impl VirtualStateProcessor {
             .notify(Notification::VirtualDaaScoreChanged(VirtualDaaScoreChangedNotification::new(new_virtual_state.daa_score)))
             .expect("expecting an open unbounded channel");
         info!(
-            "resolve_virtual chain changed : +[{:?}] -[{:?}] :[?]",
+            "resolve_virtual chain changed : +[{:?}] -[{:?}]",
             chain_path.added.len(),
             chain_path.removed.len(),
            );
@@ -355,16 +408,33 @@ impl VirtualStateProcessor {
         if chain_path.added.len() > 0 || chain_path.removed.len() > 0 { // todo assert no removal?
             let added_chain_blocks_acceptance_data =
                 chain_path.added.iter().copied().map(|added| self.acceptance_data_store.get(added).unwrap()).collect_vec();
-            if chain_path.added.len() < 10 {
-                info!(
-                    "VIRTUAL PROCESSOR, notifying virtual chain changed : \n+({:?})\n-({:?})\n:({:?})",
+
+            info!(
+                    "VIRTUAL PROCESSOR, notifying virtual chain changed : \n+({:?})\n-({:?})\n",
                     chain_path.added,
-                    chain_path.removed,
-                    added_chain_blocks_acceptance_data
+                    chain_path.removed
                 );
+
+            // Remove blocks that are in chain_path.removed
+            for &removed_block in &chain_path.removed {
+                self.block_storage.write().remove_block(removed_block);
             }
-                
-        
+
+
+            // Add blocks that are in chain_path.added
+            for &added_block in &chain_path.added {
+                self.block_storage.write().add_block(added_block);
+            }
+
+            // Increment the counter at line 425
+            let count = self.line_425_counter.fetch_add(1, Ordering::SeqCst) + 1;
+            if count % 20 == 0 {
+                // Retrieve and print transactions matching subnetwork ID 0
+                let subnetwork_id = SubnetworkId::from_byte(0);
+                let transactions = self.block_storage.read().get_transactions_by_subnetwork_id(subnetwork_id);
+                info!("{} TX from sNID 0: {:?}", count, transactions.len());
+            }
+
             if self.notification_root.has_subscription(EventType::VirtualChainChanged) {
                 // check for subscriptions before the heavy lifting - ilya
                 self.notification_root

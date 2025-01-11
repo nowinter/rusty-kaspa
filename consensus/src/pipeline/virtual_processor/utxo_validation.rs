@@ -138,9 +138,8 @@ impl VirtualStateProcessor {
 
         // Make sure accepted tx ids are sorted before building the merkle root
         // NOTE: when subnetworks will be enabled, the sort should consider them in order to allow grouping under a merkle subtree
-        let ret_val = ctx.accepted_tx_ids.clone();
         ctx.accepted_tx_ids.sort();
-        ret_val
+        ctx.accepted_tx_ids.clone()
     }
 
     /// Verify that the current block fully respects its own UTXO view. We define a block as

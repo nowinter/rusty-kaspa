@@ -1668,13 +1668,15 @@ async fn selected_chain_test() {
         .build();
     let consensus = TestConsensus::new(&config);
     let wait_handles = consensus.init();
-
+    println!("LkgVirtualState: {:?}",consensus.lkg_virtual_state); //virtual_stores().read().state.get());
     consensus.add_utxo_valid_block_with_parents(1.into(), vec![config.genesis.hash], vec![]).await.unwrap();
     for i in 2..7 {
         let hash = i.into();
         consensus.add_utxo_valid_block_with_parents(hash, vec![(i - 1).into()], vec![]).await.unwrap();
     }
     consensus.add_utxo_valid_block_with_parents(7.into(), vec![1.into()], vec![]).await.unwrap(); // Adding a non chain block shouldn't affect the selected chain store.
+
+    println!("LkgVirtualState: {:?}",consensus.lkg_virtual_state); //virtual_stores().read().state.get());
 
     assert_eq!(consensus.selected_chain_store.read().get_by_index(0).unwrap(), config.genesis.hash);
     for i in 1..7 {
@@ -1687,6 +1689,7 @@ async fn selected_chain_test() {
         let hash = i.into();
         consensus.add_utxo_valid_block_with_parents(hash, vec![(i - 1).into()], vec![]).await.unwrap();
     }
+    println!("LkgVirtualState: {:?}",consensus.lkg_virtual_state); //virtual_stores().read().state.get());
 
     assert_eq!(consensus.selected_chain_store.read().get_by_index(0).unwrap(), config.genesis.hash);
     for i in 1..8 {
@@ -1699,7 +1702,7 @@ async fn selected_chain_test() {
         consensus.add_utxo_valid_block_with_parents(i.into(), vec![config.genesis.hash], vec![]).await.unwrap();
     }
     consensus.add_utxo_valid_block_with_parents(23.into(), (15..23).map(|i| i.into()).collect_vec(), vec![]).await.unwrap();
-
+    println!("LkgVirtualState: {:?}",consensus.lkg_virtual_state); //virtual_stores().read().state.get());
     assert_eq!(consensus.selected_chain_store.read().get_by_index(0).unwrap(), config.genesis.hash);
     assert_eq!(consensus.selected_chain_store.read().get_by_index(1).unwrap(), 22.into()); // We expect 23's selected parent to be 22 because of GHOSTDAG tie-breaking rules.
     assert_eq!(consensus.selected_chain_store.read().get_by_index(2).unwrap(), 23.into());

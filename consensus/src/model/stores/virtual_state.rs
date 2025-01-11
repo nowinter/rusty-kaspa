@@ -2,6 +2,7 @@ use std::ops::Deref;
 use std::sync::Arc;
 
 use arc_swap::ArcSwap;
+use log::{trace};
 use kaspa_consensus_core::api::stats::VirtualStateStats;
 use kaspa_consensus_core::{
     block::VirtualStateApproxId, coinbase::BlockRewardData, config::genesis::GenesisBlock, tx::TransactionId,
@@ -19,7 +20,7 @@ use serde::{Deserialize, Serialize};
 use super::ghostdag::GhostdagData;
 use super::utxo_set::DbUtxoSetStore;
 
-#[derive(Clone, Serialize, Deserialize, Default)]
+#[derive(Clone, Serialize, Deserialize, Default, Debug)]
 pub struct VirtualState {
     pub parents: Vec<Hash>,
     pub ghostdag_data: GhostdagData,
@@ -31,6 +32,7 @@ pub struct VirtualState {
     pub accepted_tx_ids: Vec<TransactionId>, // TODO: consider saving `accepted_id_merkle_root` directly
     pub mergeset_rewards: BlockHashMap<BlockRewardData>,
     pub mergeset_non_daa: BlockHashSet,
+    pub(crate) acc_unsorted: Vec<TransactionId>,
 }
 
 impl VirtualState {
@@ -45,7 +47,9 @@ impl VirtualState {
         mergeset_rewards: BlockHashMap<BlockRewardData>,
         mergeset_non_daa: BlockHashSet,
         ghostdag_data: GhostdagData,
+        acc_unsorted: Vec<TransactionId>,
     ) -> Self {
+            trace!("new VS: accepted_tx_ids len: {:?}", accepted_tx_ids.len());
         Self {
             parents,
             ghostdag_data,
@@ -57,6 +61,7 @@ impl VirtualState {
             accepted_tx_ids,
             mergeset_rewards,
             mergeset_non_daa,
+            acc_unsorted,
         }
     }
 
@@ -72,6 +77,7 @@ impl VirtualState {
             accepted_tx_ids: genesis.build_genesis_transactions().into_iter().map(|tx| tx.id()).collect(),
             mergeset_rewards: BlockHashMap::new(),
             mergeset_non_daa: BlockHashSet::from_iter(std::iter::once(genesis.hash)),
+            acc_unsorted: Vec::new(),
         }
     }
 
@@ -93,7 +99,7 @@ impl From<&VirtualState> for VirtualStateStats {
 
 /// Represents the "last known good" virtual state. To be used by any logic which does not want to wait
 /// for a possible virtual state write to complete but can rather settle with the last known state
-#[derive(Clone, Default)]
+#[derive(Clone, Default, Debug)]
 pub struct LkgVirtualState {
     inner: Arc<ArcSwap<VirtualState>>,
 }
@@ -120,7 +126,6 @@ impl LkgVirtualState {
     pub fn load_full(&self) -> Arc<VirtualState> {
         self.inner.load_full()
     }
-
     // Kept private in order to make sure it is only updated by DbVirtualStateStore
     fn store(&self, virtual_state: Arc<VirtualState>) {
         self.inner.store(virtual_state)

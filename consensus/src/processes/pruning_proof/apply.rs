@@ -125,6 +125,7 @@ impl PruningProofManager {
         let virtual_state = Arc::new(VirtualState {
             parents: virtual_parents.clone(),
             ghostdag_data: self.ghostdag_manager.ghostdag(&virtual_parents),
+            acc_unsorted: Vec::new(),
             ..VirtualState::default()
         });
         self.virtual_stores.write().state.set(virtual_state).unwrap();

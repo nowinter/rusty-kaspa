@@ -69,7 +69,7 @@ impl VirtualStateProcessor {
         ctx: &mut UtxoProcessingContext,
         selected_parent_utxo_view: &V,
         pov_daa_score: u64,
-    ) {
+    ) -> Vec<TransactionId> {
         let selected_parent_transactions = self.block_transactions_store.get(ctx.selected_parent()).unwrap();
         let validated_coinbase = ValidatedTransaction::new_coinbase(&selected_parent_transactions[0]);
 
@@ -138,7 +138,9 @@ impl VirtualStateProcessor {
 
         // Make sure accepted tx ids are sorted before building the merkle root
         // NOTE: when subnetworks will be enabled, the sort should consider them in order to allow grouping under a merkle subtree
+        let ret_val = ctx.accepted_tx_ids.clone();
         ctx.accepted_tx_ids.sort();
+        ret_val
     }
 
     /// Verify that the current block fully respects its own UTXO view. We define a block as

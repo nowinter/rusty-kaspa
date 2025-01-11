@@ -397,7 +397,7 @@ impl VirtualStateProcessor {
         }
 
         let split_point = split_point.expect("chain iterator was expected to reach the reorg split point");
-        debug!("VIRTUAL PROCESSOR, found split point: {split_point}");
+        info!("VIRTUAL PROCESSOR, found split point: {split_point}");
 
         // A variable holding the most recent UTXO-valid block on `chain(to)` (note that it's maintained such
         // that 'diff' is always its UTXO diff from virtual)
@@ -437,7 +437,7 @@ impl VirtualStateProcessor {
 
                     let mut ctx = UtxoProcessingContext::new(mergeset_data.into(), selected_parent_multiset_hash);
 
-                    self.calculate_utxo_state(&mut ctx, &selected_parent_utxo_view, pov_daa_score);
+                    let _ = self.calculate_utxo_state(&mut ctx, &selected_parent_utxo_view, pov_daa_score);
                     let res = self.verify_expected_utxo_state(&mut ctx, &selected_parent_utxo_view, &header);
 
                     if let Err(rule_error) = res {
@@ -517,7 +517,7 @@ impl VirtualStateProcessor {
         let virtual_past_median_time = self.window_manager.calc_past_median_time(&virtual_ghostdag_data)?.0;
 
         // Calc virtual UTXO state relative to selected parent
-        self.calculate_utxo_state(&mut ctx, &selected_parent_utxo_view, virtual_daa_window.daa_score);
+        let acc_unsorted = self.calculate_utxo_state(&mut ctx, &selected_parent_utxo_view, virtual_daa_window.daa_score);
 
         // Update the accumulated diff
         accumulated_diff.with_diff_in_place(&ctx.mergeset_diff).unwrap();
@@ -534,6 +534,7 @@ impl VirtualStateProcessor {
             ctx.mergeset_rewards,
             virtual_daa_window.mergeset_non_daa,
             virtual_ghostdag_data,
+            acc_unsorted,
         )))
     }
 
@@ -547,7 +548,7 @@ impl VirtualStateProcessor {
         let mut batch = WriteBatch::default();
         let mut virtual_write = RwLockUpgradableReadGuard::upgrade(virtual_read);
         let mut selected_chain_write = self.selected_chain_store.write();
-
+        info!("VP: LKG acc {:?}", self.lkg_virtual_state.load().acc_unsorted);
         // Apply the accumulated diff to the virtual UTXO set
         virtual_write.utxo_set.write_diff_batch(&mut batch, accumulated_diff).unwrap();
 

@@ -77,7 +77,7 @@ impl VirtualState {
             accepted_tx_ids: genesis.build_genesis_transactions().into_iter().map(|tx| tx.id()).collect(),
             mergeset_rewards: BlockHashMap::new(),
             mergeset_non_daa: BlockHashSet::from_iter(std::iter::once(genesis.hash)),
-            acc_unsorted: Vec::new(),
+            acc_unsorted: vec![],
         }
     }
 

@@ -437,7 +437,7 @@ impl VirtualStateProcessor {
 
                     let mut ctx = UtxoProcessingContext::new(mergeset_data.into(), selected_parent_multiset_hash);
 
-                    let _ = self.calculate_utxo_state(&mut ctx, &selected_parent_utxo_view, pov_daa_score);
+                    self.calculate_utxo_state(&mut ctx, &selected_parent_utxo_view, pov_daa_score);
                     let res = self.verify_expected_utxo_state(&mut ctx, &selected_parent_utxo_view, &header);
 
                     if let Err(rule_error) = res {
@@ -517,8 +517,15 @@ impl VirtualStateProcessor {
         let virtual_past_median_time = self.window_manager.calc_past_median_time(&virtual_ghostdag_data)?.0;
 
         // Calc virtual UTXO state relative to selected parent
-        let acc_unsorted = self.calculate_utxo_state(&mut ctx, &selected_parent_utxo_view, virtual_daa_window.daa_score);
-
+        self.calculate_utxo_state(&mut ctx, &selected_parent_utxo_view, virtual_daa_window.daa_score);
+        let accepted_now = &ctx.accepted_tx_ids;
+        let vs_accepted_id_merkle_root = kaspa_merkle::calc_merkle_root(accepted_now.iter().copied());
+        let lkg_accepted = &self.lkg_virtual_state.load().accepted_tx_ids;
+        let lkg_accepted_id_merkle_root = kaspa_merkle::calc_merkle_root(lkg_accepted.iter().copied());
+        debug!("VP: VS acc running {:?}, LKG acc: {:?}",
+            vs_accepted_id_merkle_root,
+            lkg_accepted_id_merkle_root,
+            ); // ilya
         // Update the accumulated diff
         accumulated_diff.with_diff_in_place(&ctx.mergeset_diff).unwrap();
 
@@ -534,7 +541,6 @@ impl VirtualStateProcessor {
             ctx.mergeset_rewards,
             virtual_daa_window.mergeset_non_daa,
             virtual_ghostdag_data,
-            acc_unsorted,
         )))
     }
 
@@ -548,10 +554,14 @@ impl VirtualStateProcessor {
         let mut batch = WriteBatch::default();
         let mut virtual_write = RwLockUpgradableReadGuard::upgrade(virtual_read);
         let mut selected_chain_write = self.selected_chain_store.write();
-        info!("VP: LKG acc {:?}", self.lkg_virtual_state.load().acc_unsorted);
+
         // Apply the accumulated diff to the virtual UTXO set
         virtual_write.utxo_set.write_diff_batch(&mut batch, accumulated_diff).unwrap();
 
+        let accepted_id_merkle_root = kaspa_merkle::calc_merkle_root(new_virtual_state.accepted_tx_ids.iter().copied());
+        debug!("VP: new VS acc {:?}",
+            accepted_id_merkle_root,
+            ); // ilya
         // Update virtual state
         virtual_write.state.set_batch(&mut batch, new_virtual_state).unwrap();
 

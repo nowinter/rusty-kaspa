@@ -32,7 +32,6 @@ pub struct VirtualState {
     pub accepted_tx_ids: Vec<TransactionId>, // TODO: consider saving `accepted_id_merkle_root` directly
     pub mergeset_rewards: BlockHashMap<BlockRewardData>,
     pub mergeset_non_daa: BlockHashSet,
-    pub(crate) acc_unsorted: Vec<TransactionId>,
 }
 
 impl VirtualState {
@@ -47,7 +46,6 @@ impl VirtualState {
         mergeset_rewards: BlockHashMap<BlockRewardData>,
         mergeset_non_daa: BlockHashSet,
         ghostdag_data: GhostdagData,
-        acc_unsorted: Vec<TransactionId>,
     ) -> Self {
             trace!("new VS: accepted_tx_ids len: {:?}", accepted_tx_ids.len());
         Self {
@@ -61,7 +59,6 @@ impl VirtualState {
             accepted_tx_ids,
             mergeset_rewards,
             mergeset_non_daa,
-            acc_unsorted,
         }
     }
 
@@ -77,7 +74,6 @@ impl VirtualState {
             accepted_tx_ids: genesis.build_genesis_transactions().into_iter().map(|tx| tx.id()).collect(),
             mergeset_rewards: BlockHashMap::new(),
             mergeset_non_daa: BlockHashSet::from_iter(std::iter::once(genesis.hash)),
-            acc_unsorted: vec![],
         }
     }
 

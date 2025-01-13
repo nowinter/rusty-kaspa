@@ -869,6 +869,7 @@ async fn goref_notx_concurrent_test() {
 
 #[tokio::test]
 async fn goref_tx_small_test() {
+    kaspa_core::log::try_init_logger("debug");
     init_allocator_with_default_settings();
     json_test("testdata/dags_for_json_tests/goref-905-tx-265-blocks", false).await
 }

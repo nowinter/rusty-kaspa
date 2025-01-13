@@ -32,6 +32,7 @@ use kaspa_utils::refs::Refs;
 use rayon::prelude::*;
 use smallvec::{smallvec, SmallVec};
 use std::{iter::once, ops::Deref};
+use log::debug;
 
 /// A context for processing the UTXO state of a block with respect to its selected parent.
 /// Note this can also be the virtual block.
@@ -69,7 +70,7 @@ impl VirtualStateProcessor {
         ctx: &mut UtxoProcessingContext,
         selected_parent_utxo_view: &V,
         pov_daa_score: u64,
-    ) -> Vec<TransactionId> {
+    ) {
         let selected_parent_transactions = self.block_transactions_store.get(ctx.selected_parent()).unwrap();
         let validated_coinbase = ValidatedTransaction::new_coinbase(&selected_parent_transactions[0]);
 
@@ -139,7 +140,6 @@ impl VirtualStateProcessor {
         // Make sure accepted tx ids are sorted before building the merkle root
         // NOTE: when subnetworks will be enabled, the sort should consider them in order to allow grouping under a merkle subtree
         ctx.accepted_tx_ids.sort();
-        ctx.accepted_tx_ids.clone()
     }
 
     /// Verify that the current block fully respects its own UTXO view. We define a block as
@@ -166,7 +166,7 @@ impl VirtualStateProcessor {
         if expected_accepted_id_merkle_root != header.accepted_id_merkle_root {
             return Err(BadAcceptedIDMerkleRoot(header.hash, header.accepted_id_merkle_root, expected_accepted_id_merkle_root));
         }
-
+        debug!("correct AIDMR: {}, {}", header.hash, expected_accepted_id_merkle_root); // ilya
         let txs = self.block_transactions_store.get(header.hash).unwrap();
 
         // Verify coinbase transaction
